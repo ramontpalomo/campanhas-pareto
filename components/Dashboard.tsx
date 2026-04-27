@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { format, subDays, startOfMonth } from 'date-fns'
+import Image from 'next/image'
 import { CalendarDays, RefreshCw, AlertTriangle, ChevronDown } from 'lucide-react'
 import { useCampaigns } from '@/hooks/useCampaigns'
 import { CampaignsTable } from '@/components/CampaignsTable'
@@ -50,12 +51,18 @@ export default function Dashboard() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#A3E635] flex items-center justify-center">
-              <span className="text-gray-900 font-bold text-sm">P</span>
-            </div>
+          <div className="flex items-center gap-4">
+            <Image
+              src="/pareto-logo.png"
+              alt="Pareto"
+              width={100}
+              height={24}
+              className="h-7 w-auto"
+              priority
+            />
+            <div className="h-5 w-px bg-gray-200" />
             <div>
-              <h1 className="text-base font-semibold text-gray-900">Campanhas Pareto</h1>
+              <h1 className="text-sm font-semibold text-gray-700">Dashboard de Campanhas</h1>
               {lastSync && (
                 <p className="text-xs text-gray-400">
                   Sincronizado: {format(new Date(lastSync), "dd/MM 'às' HH:mm")}
