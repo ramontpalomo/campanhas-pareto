@@ -14,5 +14,260 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- Hotspot overlay — injected without modifying React source -->
+    <script>
+    (function () {
+      var STORAGE_KEY = 'pareto-hotspots-v1';
+
+      function load() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+      }
+      function save(hs) { localStorage.setItem(STORAGE_KEY, JSON.stringify(hs)); }
+
+      // Get x-coordinate of a date label inside a Recharts SVG
+      function getTickX(svg, label) {
+        var texts = svg.querySelectorAll('text');
+        for (var i = 0; i < texts.length; i++) {
+          if (texts[i].textContent.trim() === label) {
+            // Try x attribute first, then transform
+            var x = parseFloat(texts[i].getAttribute('x'));
+            if (!isNaN(x)) return x;
+            var tr = texts[i].getAttribute('transform');
+            if (tr) {
+              var m = tr.match(/translate\(([^,)]+)/);
+              if (m) return parseFloat(m[1]);
+            }
+          }
+        }
+        return null;
+      }
+
+      // Get date labels (dd/MM) from a chart SVG
+      function getLabels(svg) {
+        var labels = [];
+        var seen = {};
+        svg.querySelectorAll('text').forEach(function (t) {
+          var v = t.textContent.trim();
+          if (/^\d{2}\/\d{2}$/.test(v) && !seen[v]) { seen[v] = 1; labels.push(v); }
+        });
+        return labels;
+      }
+
+      // Draw hotspot lines as an SVG overlay on top of the chart
+      function renderOverlay(card) {
+        var old = card.querySelector('.hs-overlay');
+        if (old) old.remove();
+
+        var hs = load();
+        if (!hs.length) return;
+
+        var svg = card.querySelector('svg');
+        if (!svg) return;
+
+        var svgRect = svg.getBoundingClientRect();
+        var cardRect = card.getBoundingClientRect();
+
+        var overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        overlay.classList.add('hs-overlay');
+        overlay.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        overlay.style.cssText = [
+          'position:absolute',
+          'top:' + (svgRect.top - cardRect.top) + 'px',
+          'left:' + (svgRect.left - cardRect.left) + 'px',
+          'width:' + svgRect.width + 'px',
+          'height:' + svgRect.height + 'px',
+          'pointer-events:none',
+          'overflow:visible',
+          'z-index:9',
+        ].join(';');
+
+        hs.forEach(function (h) {
+          var x = getTickX(svg, h.dateLabel);
+          if (x === null) return;
+
+          var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', x); line.setAttribute('x2', x);
+          line.setAttribute('y1', '18'); line.setAttribute('y2', svgRect.height - 28);
+          line.setAttribute('stroke', '#d97706');
+          line.setAttribute('stroke-width', '1.5');
+          line.setAttribute('stroke-dasharray', '5,4');
+          overlay.appendChild(line);
+
+          var label = h.text.length > 13 ? h.text.slice(0, 13) + '…' : h.text;
+          var bw = label.length * 6.5 + 14;
+
+          var bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          bg.setAttribute('x', x - bw / 2); bg.setAttribute('y', '1');
+          bg.setAttribute('width', bw); bg.setAttribute('height', '18');
+          bg.setAttribute('rx', '4'); bg.setAttribute('fill', '#d97706');
+          overlay.appendChild(bg);
+
+          var txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          txt.setAttribute('x', x); txt.setAttribute('y', '13');
+          txt.setAttribute('text-anchor', 'middle');
+          txt.setAttribute('fill', 'white');
+          txt.setAttribute('font-size', '10');
+          txt.setAttribute('font-weight', '600');
+          txt.setAttribute('font-family', 'Inter,system-ui,sans-serif');
+          txt.textContent = label;
+          overlay.appendChild(txt);
+        });
+
+        card.style.position = 'relative';
+        card.appendChild(overlay);
+      }
+
+      // Refresh overlays on all active chart cards
+      function refreshAll() {
+        document.querySelectorAll('[data-hs]').forEach(function (card) {
+          renderOverlay(card);
+        });
+      }
+
+      // Modal to add / remove hotspots
+      function openModal(card) {
+        var svg = card.querySelector('svg');
+        if (!svg) return;
+        var labels = getLabels(svg);
+        var hs = load();
+
+        var backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+        var box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:16px;padding:24px;width:300px;box-shadow:0 24px 64px rgba(0,0,0,0.25);font-family:Inter,system-ui,sans-serif;';
+
+        var existingHTML = '';
+        if (hs.length) {
+          existingHTML = '<div style="margin-top:16px;padding-top:16px;border-top:1px solid #f1f5f9;">' +
+            '<p style="font-size:11px;color:#aaa;font-weight:500;margin-bottom:6px;">Marcações cadastradas</p>' +
+            hs.map(function (h) {
+              return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">' +
+                '<span style="font-size:11px;color:#d97706;font-weight:600;min-width:34px;">' + h.dateLabel + '</span>' +
+                '<span style="font-size:11px;color:#555;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + h.text + '</span>' +
+                '<button data-del="' + h.id + '" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:16px;line-height:1;padding:0 2px;">×</button>' +
+                '</div>';
+            }).join('') + '</div>';
+        }
+
+        box.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+          '<span style="font-size:14px;font-weight:600;color:#111;">📌 Nova Marcação</span>' +
+          '<button id="hs-close" style="background:none;border:none;cursor:pointer;font-size:20px;color:#999;line-height:1;">×</button>' +
+          '</div>' +
+          '<div style="margin-bottom:12px;">' +
+          '<label style="font-size:11px;color:#888;font-weight:500;display:block;margin-bottom:4px;">Dia</label>' +
+          '<select id="hs-date" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;color:#111;outline:none;background:#fff;">' +
+          '<option value="">Selecionar data…</option>' +
+          labels.map(function (l) { return '<option value="' + l + '">' + l + '</option>'; }).join('') +
+          '</select></div>' +
+          '<div style="margin-bottom:16px;">' +
+          '<label style="font-size:11px;color:#888;font-weight:500;display:block;margin-bottom:4px;">Anotação</label>' +
+          '<input id="hs-text" type="text" placeholder="Ex: Campanha pausada" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;color:#111;outline:none;box-sizing:border-box;" />' +
+          '</div>' +
+          '<button id="hs-save" style="width:100%;background:#d97706;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">Adicionar</button>' +
+          existingHTML;
+
+        backdrop.appendChild(box);
+        document.body.appendChild(backdrop);
+
+        var close = function () { backdrop.remove(); };
+        backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(); });
+        box.querySelector('#hs-close').addEventListener('click', close);
+
+        var saveBtn = box.querySelector('#hs-save');
+        saveBtn.addEventListener('click', function () {
+          var date = box.querySelector('#hs-date').value;
+          var text = box.querySelector('#hs-text').value.trim();
+          if (!date || !text) return;
+          var arr = load();
+          arr.push({ id: Date.now().toString(), dateLabel: date, text: text });
+          save(arr);
+          close();
+          refreshAll();
+        });
+
+        box.querySelectorAll('[data-del]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-del');
+            save(load().filter(function (h) { return h.id !== id; }));
+            close();
+            refreshAll();
+          });
+        });
+
+        var textInput = box.querySelector('#hs-text');
+        setTimeout(function () { textInput.focus(); }, 80);
+        textInput.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') saveBtn.click();
+        });
+      }
+
+      // Attach "+" button to a chart card
+      function attachCard(h3) {
+        var card = h3.parentElement;
+        if (!card || card.dataset.hs) return;
+        card.dataset.hs = '1';
+
+        // Wrap h3 in a flex row with the "+" button
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:' + (h3.style.marginBottom || '0');
+        h3.parentNode.insertBefore(row, h3);
+        h3.style.marginBottom = '0';
+        row.appendChild(h3);
+
+        var btn = document.createElement('button');
+        btn.textContent = '+';
+        btn.title = 'Adicionar marcação';
+        btn.style.cssText = [
+          'width:26px', 'height:26px',
+          'border:1.5px solid #d97706', 'border-radius:6px',
+          'background:white', 'color:#d97706',
+          'font-size:17px', 'font-weight:600',
+          'cursor:pointer', 'line-height:1',
+          'display:flex', 'align-items:center', 'justify-content:center',
+          'flex-shrink:0', 'transition:background 0.15s',
+          'padding:0',
+        ].join(';');
+        btn.addEventListener('mouseenter', function () { btn.style.background = '#fffbeb'; });
+        btn.addEventListener('mouseleave', function () { btn.style.background = 'white'; });
+        btn.addEventListener('click', function () { openModal(card); });
+        row.appendChild(btn);
+
+        renderOverlay(card);
+      }
+
+      // Scan DOM for chart headings and attach cards
+      function scan() {
+        document.querySelectorAll('h3').forEach(function (h3) {
+          if (/Diário/i.test(h3.textContent) && !h3.parentElement.dataset.hs) {
+            attachCard(h3);
+          }
+        });
+      }
+
+      // Re-render overlays when React updates the chart SVG
+      var renderTimer = null;
+      var svgObserver = new MutationObserver(function () {
+        clearTimeout(renderTimer);
+        renderTimer = setTimeout(refreshAll, 300);
+      });
+
+      // Watch for chart cards appearing (React async render)
+      var domObserver = new MutationObserver(scan);
+
+      function init() {
+        scan();
+        domObserver.observe(document.body, { childList: true, subtree: true });
+        svgObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['d', 'transform'] });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+    </script>
   </body>
 </html>
