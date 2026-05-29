@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabase, CampaignMetric } from '@/lib/supabase'
 import { detectProduct, detectConversionEvent } from '@/lib/config'
 
 export interface AggregatedCampaign {
@@ -27,6 +26,23 @@ export interface DailyMetric {
   cost_per_conversion: number
 }
 
+interface RawMetric {
+  campaign_id: string
+  campaign_name: string
+  platform: 'meta' | 'google'
+  product: string
+  date: string
+  spend: number
+  impressions: number
+  clicks: number
+  conversions: number
+  conversion_event: string
+  cpm: number
+  cpc: number
+  ctr: number
+  synced_at: string
+}
+
 export function useCampaigns(startDate: string, endDate: string) {
   const [campaigns, setCampaigns] = useState<AggregatedCampaign[]>([])
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([])
@@ -39,17 +55,19 @@ export function useCampaigns(startDate: string, endDate: string) {
     setError(null)
 
     try {
-      const { data, error: dbError } = await supabase
-        .schema('campaigns')
-        .from('campaign_metrics')
-        .select('*')
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .order('date', { ascending: true })
+      const res = await fetch(
+        `/api/campaigns?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
+      )
 
-      if (dbError) throw dbError
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
 
-      const metrics: CampaignMetric[] = data || []
+      const { metrics, lastSync: ls } = await res.json() as {
+        metrics: RawMetric[]
+        lastSync: string | null
+      }
 
       // Aggregate by campaign
       const campaignMap = new Map<string, AggregatedCampaign>()
@@ -60,8 +78,8 @@ export function useCampaigns(startDate: string, endDate: string) {
             campaign_id: m.campaign_id,
             campaign_name: m.campaign_name,
             platform: m.platform,
-            product: m.product || detectProduct(m.campaign_name),
-            conversion_event: m.conversion_event || detectConversionEvent(m.campaign_name),
+            product: detectProduct(m.campaign_name),
+            conversion_event: detectConversionEvent(m.campaign_name),
             spend: 0,
             impressions: 0,
             clicks: 0,
@@ -78,7 +96,6 @@ export function useCampaigns(startDate: string, endDate: string) {
         c.conversions += m.conversions
       }
 
-      // Recalculate derived metrics
       const aggregated = Array.from(campaignMap.values()).map(c => ({
         ...c,
         spend: Math.round(c.spend * 100) / 100,
@@ -109,12 +126,7 @@ export function useCampaigns(startDate: string, endDate: string) {
       }))
 
       setDailyMetrics(daily.sort((a, b) => a.date.localeCompare(b.date)))
-
-      // Last sync time
-      if (metrics.length > 0) {
-        const latest = metrics.reduce((a, b) => a.synced_at > b.synced_at ? a : b)
-        setLastSync(latest.synced_at)
-      }
+      setLastSync(ls)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar dados')
     } finally {

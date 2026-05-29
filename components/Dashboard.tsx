@@ -3,9 +3,8 @@
 import { useState } from 'react'
 import { format, subDays, startOfMonth } from 'date-fns'
 import Image from 'next/image'
-import { CalendarDays, RefreshCw, AlertTriangle, ChevronDown, Pin, X, Plus } from 'lucide-react'
+import { CalendarDays, RefreshCw, AlertTriangle, ChevronDown } from 'lucide-react'
 import { useCampaigns } from '@/hooks/useCampaigns'
-import { useHotspots, HOTSPOT_COLORS } from '@/hooks/useHotspots'
 import { CampaignsTable } from '@/components/CampaignsTable'
 import { EvolutionChart } from '@/components/EvolutionChart'
 
@@ -28,28 +27,12 @@ export default function Dashboard() {
   const [chartMetric, setChartMetric] = useState<ChartMetric>('spend')
   const [activePreset, setActivePreset] = useState(1)
 
-  // Hotspot modal state
-  const [showHotspotModal, setShowHotspotModal] = useState(false)
-  const [hsDate, setHsDate] = useState(fmt(subDays(today, 1)))
-  const [hsLabel, setHsLabel] = useState('')
-  const [hsColor, setHsColor] = useState(HOTSPOT_COLORS[0].value)
-
   const { campaigns, dailyMetrics, loading, error, lastSync, refetch } = useCampaigns(startDate, endDate)
-  const { hotspots, addHotspot, removeHotspot } = useHotspots()
 
   const handlePreset = (i: number) => {
     setStartDate(PRESETS[i].start)
     setEndDate(PRESETS[i].end)
     setActivePreset(i)
-  }
-
-  const handleAddHotspot = () => {
-    if (!hsLabel.trim() || !hsDate) return
-    addHotspot({ date: hsDate, label: hsLabel.trim(), color: hsColor })
-    setHsLabel('')
-    setHsDate(fmt(subDays(today, 1)))
-    setHsColor(HOTSPOT_COLORS[0].value)
-    setShowHotspotModal(false)
   }
 
   const totalSpend = campaigns
@@ -182,32 +165,19 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-sm font-semibold text-gray-700">Evolução por Produto</h2>
-            <div className="flex items-center gap-2">
-              {/* Add Hotspot button */}
-              <button
-                onClick={() => setShowHotspotModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-                title="Adicionar marcação no gráfico"
+            <div className="relative">
+              <select
+                value={chartMetric}
+                onChange={e => setChartMetric(e.target.value as ChartMetric)}
+                className="appearance-none pl-3 pr-8 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
               >
-                <Pin className="w-3.5 h-3.5" />
-                <span>Marcação</span>
-                <Plus className="w-3 h-3" />
-              </button>
-              <div className="relative">
-                <select
-                  value={chartMetric}
-                  onChange={e => setChartMetric(e.target.value as ChartMetric)}
-                  className="appearance-none pl-3 pr-8 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
-                >
-                  <option value="spend">Gasto (R$)</option>
-                  <option value="conversions">Conversões</option>
-                  <option value="cost_per_conversion">CPA (R$)</option>
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
+                <option value="spend">Gasto (R$)</option>
+                <option value="conversions">Conversões</option>
+                <option value="cost_per_conversion">CPA (R$)</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
           </div>
-
           {loading ? (
             <div className="h-72 flex items-center justify-center text-gray-400 text-sm">
               Carregando...
@@ -216,40 +186,7 @@ export default function Dashboard() {
             <EvolutionChart
               dailyMetrics={dailyMetrics.filter(d => platform === 'all' || true)}
               metric={chartMetric}
-              hotspots={hotspots}
             />
-          )}
-
-          {/* Hotspot legend below chart */}
-          {hotspots.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide flex items-center gap-1">
-                <Pin className="w-3 h-3" /> Marcações
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {hotspots
-                  .slice()
-                  .sort((a, b) => a.date.localeCompare(b.date))
-                  .map(h => (
-                    <div
-                      key={h.id}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
-                      style={{ backgroundColor: h.color }}
-                    >
-                      <span>{format(new Date(h.date + 'T12:00:00'), 'dd/MM')}</span>
-                      <span className="opacity-80">·</span>
-                      <span>{h.label}</span>
-                      <button
-                        onClick={() => removeHotspot(h.id)}
-                        className="ml-1 opacity-70 hover:opacity-100 transition-opacity"
-                        title="Remover marcação"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            </div>
           )}
         </div>
 
@@ -264,89 +201,6 @@ export default function Dashboard() {
         </div>
 
       </main>
-
-      {/* Hotspot Modal */}
-      {showHotspotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                <Pin className="w-4 h-4 text-gray-500" />
-                Nova Marcação
-              </h3>
-              <button
-                onClick={() => setShowHotspotModal(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Date */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Data da mudança</label>
-                <input
-                  type="date"
-                  value={hsDate}
-                  onChange={e => setHsDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
-                />
-              </div>
-
-              {/* Label */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Descrição da mudança</label>
-                <input
-                  type="text"
-                  value={hsLabel}
-                  onChange={e => setHsLabel(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddHotspot()}
-                  placeholder="Ex: Novo criativo ativado"
-                  maxLength={60}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 placeholder:text-gray-300"
-                />
-              </div>
-
-              {/* Color */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-2">Cor</label>
-                <div className="flex gap-2">
-                  {HOTSPOT_COLORS.map(c => (
-                    <button
-                      key={c.value}
-                      title={c.name}
-                      onClick={() => setHsColor(c.value)}
-                      className="w-7 h-7 rounded-full transition-transform hover:scale-110 flex items-center justify-center"
-                      style={{ backgroundColor: c.value }}
-                    >
-                      {hsColor === c.value && (
-                        <span className="text-white text-xs font-bold">✓</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={() => setShowHotspotModal(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleAddHotspot}
-                disabled={!hsLabel.trim() || !hsDate}
-                className="flex-1 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Adicionar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
